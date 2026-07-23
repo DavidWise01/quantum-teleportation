@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleportation — Moving a Qubit Without Moving It</title>
+<style>
+  :root{
+    --bg:#08080f;--bg2:#0c0c18;--panel:#10101e;--panel2:#13131f;--line:#1f1f33;--line2:#2a2a42;
+    --ink:#e7e7f0;--dim:#9a9ab5;--faint:#5e5e7a;
+    --cyan:#5eead4;--cyan-d:#2dd4bf;--amber:#fbbf24;--amber-d:#f59e0b;--violet:#a78bfa;--rose:#fb7185;--green:#86efac;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:radial-gradient(1200px 700px at 86% -12%,rgba(94,234,212,.06),transparent 60%),
+               radial-gradient(900px 600px at 0% 112%,rgba(167,139,250,.05),transparent 55%),var(--bg);
+    color:var(--ink);font-family:'IBM Plex Sans',sans-serif;font-weight:300;
+    min-height:100vh;padding:28px 22px 64px;-webkit-font-smoothing:antialiased;
+  }
+  .shell{max-width:1160px;margin:0 auto}
+  .kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.4em;text-transform:uppercase;color:var(--cyan);margin-bottom:12px}
+  h1{font-family:'Spectral',serif;font-weight:300;font-size:clamp(30px,5vw,48px);letter-spacing:-.02em;line-height:1.04}
+  h1 em{font-style:italic;color:var(--cyan)}
+  .sub{color:var(--dim);font-size:15px;margin-top:8px;max-width:720px}
+
+  .config{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:24px 0 16px}
+  .grp{display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:7px 10px}
+  .grp .gl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-right:2px}
+  .opt{font-family:'IBM Plex Mono',monospace;font-size:12px;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel2);color:var(--dim);padding:6px 11px;cursor:pointer;transition:.15s}
+  .opt.on{border-color:var(--cyan-d);color:var(--cyan);background:rgba(94,234,212,.08)}
+  .opt:hover{border-color:var(--line2);color:var(--ink)}
+  .opt.rerun{border-color:var(--violet);color:var(--violet);background:rgba(167,139,250,.08);margin-left:auto}
+
+  .stagewrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
+  @media(max-width:920px){.stagewrap{grid-template-columns:1fr}}
+  .stage{background:linear-gradient(160deg,var(--panel),#0a0a14);border:1px solid var(--line);border-radius:16px;padding:20px 22px 16px}
+  .sec{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+
+  /* two actors + spheres */
+  .arena{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}
+  @media(max-width:620px){.arena{grid-template-columns:1fr}}
+  .actor{text-align:center}
+  .actor .who{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:8px}
+  .actor.alice .who{color:var(--cyan)} .actor.bob .who{color:var(--green)}
+  .sphereholder{position:relative;border:1px solid var(--line);border-radius:16px;background:radial-gradient(380px 380px at 50% 42%,rgba(94,234,212,.05),transparent 70%),#0a0a14;padding:8px;transition:.3s}
+  .sphereholder.win{border-color:var(--green);box-shadow:0 0 26px rgba(134,239,172,.25)}
+  .sphereholder.dead{opacity:.5;filter:grayscale(.6)}
+  canvas{width:100%;height:auto;display:block}
+  .statelbl{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--dim);margin-top:8px;min-height:18px}
+  .statelbl .c{color:var(--cyan)} .statelbl .g{color:var(--green)} .statelbl .f{color:var(--faint)}
+
+  /* channel in the middle */
+  .channel{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:120px}
+  .ebit{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--violet);letter-spacing:.08em;text-align:center;line-height:1.4}
+  .ebit .link{font-size:20px;letter-spacing:2px}
+  .cbits{display:flex;gap:6px}
+  .cb{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);display:grid;place-items:center;
+    font-family:'IBM Plex Mono',monospace;font-size:16px;color:var(--faint);transition:.3s}
+  .cb.set{border-color:var(--amber-d);color:var(--amber);background:rgba(251,191,36,.1)}
+  .cb.transit{animation:slide .9s ease}
+  @keyframes slide{0%{transform:translateX(-30px);opacity:.3}100%{transform:none;opacity:1}}
+  .clabel{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--faint);text-align:center;letter-spacing:.06em}
+  .arrow{color:var(--faint);font-size:18px}
+
+  /* step controls */
+  .stepbar{display:flex;align-items:center;gap:9px;margin-top:22px}
+  .sbtn{border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--dim);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;padding:10px 14px;cursor:pointer;transition:.15s}
+  .sbtn:hover:not(:disabled){border-color:var(--cyan-d);color:var(--cyan)}
+  .sbtn:disabled{opacity:.3;cursor:not-allowed}
+  .sbtn.play{border-color:var(--cyan-d);color:var(--cyan);background:rgba(94,234,212,.08)}
+  .progress{flex:1;height:4px;background:var(--line);border-radius:4px;overflow:hidden;max-width:200px}
+  .progress .pf{height:100%;width:0;background:var(--cyan-d);transition:width .4s}
+
+  .stepdesc{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;min-height:78px}
+  .stepdesc .sl{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--violet);margin-bottom:6px}
+  .stepdesc .sd{font-size:14px;color:var(--dim);line-height:1.6}
+
+  .side{display:flex;flex-direction:column;gap:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+
+  .fid{text-align:center}
+  .fid .val{font-family:'Spectral',serif;font-size:42px;line-height:1;color:var(--green)}
+  .fid .vl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--faint);margin-top:4px}
+  .fbar{height:8px;background:var(--bg2);border:1px solid var(--line);border-radius:5px;overflow:hidden;margin:12px 0 4px}
+  .fbar .ff{height:100%;width:0;background:linear-gradient(90deg,var(--cyan-d),var(--green));transition:width .5s cubic-bezier(.2,.7,.3,1)}
+  .precorr{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);margin-top:12px;line-height:1.6}
+  .precorr b{color:var(--amber)}
+
+  .lessons{list-style:none}
+  .lessons li{font-size:12.5px;color:var(--dim);line-height:1.55;padding:10px 0 10px 0;border-bottom:1px dashed var(--line)}
+  .lessons li:last-child{border:0} .lessons li b{color:var(--ink);font-weight:500}
+  .lessons .t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--violet);display:block;margin-bottom:3px}
+
+  footer{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.9}
+  footer .seq{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  footer .seq span{padding:5px 12px;border:1px solid var(--line);border-radius:30px}
+  footer .seq .here{border-color:var(--cyan-d);color:var(--cyan)}
+</style>
+<meta name="author" content="David Lee Wise / ROOT0 / TriPod LLC">
+<meta name="license" content="https://creativecommons.org/licenses/by-nd/4.0/">
+</head>
+<body>
+<div class="shell">
+  <div>
+    <div class="kicker">Quantum Computing · Instrument 06 · Teleportation</div>
+    <h1>Teleportation — move a qubit <em>without moving it</em></h1>
+    <p class="sub">You can't copy an unknown quantum state (no-cloning), and you can't read it without destroying it. Yet a shared entangled pair plus two ordinary classical bits can transfer it perfectly from Alice to Bob — the original vanishing as the copy appears. Step through it and watch the state leave one sphere and land on the other.</p>
+  </div>
+
+  <div class="config" id="config"></div>
+
+  <div class="stagewrap">
+    <div class="stage">
+      <div class="sec">The journey — Alice's qubit becomes Bob's</div>
+      <div class="arena">
+        <div class="actor alice">
+          <div class="who">Alice · sender</div>
+          <div class="sphereholder" id="holderA"><canvas id="sphA" width="420" height="420"></canvas></div>
+          <div class="statelbl" id="lblA"></div>
+        </div>
+        <div class="channel">
+          <div class="ebit"><div class="link">●╌╌╌●</div>shared Bell pair<br>(entanglement)</div>
+          <div class="arrow">↓</div>
+          <div class="cbits"><div class="cb" id="cb0">·</div><div class="cb" id="cb1">·</div></div>
+          <div class="clabel" id="clabel">2 classical bits<br>(not yet sent)</div>
+          <div class="arrow">→</div>
+        </div>
+        <div class="actor bob">
+          <div class="who">Bob · receiver</div>
+          <div class="sphereholder" id="holderB"><canvas id="sphB" width="420" height="420"></canvas></div>
+          <div class="statelbl" id="lblB"></div>
+        </div>
+      </div>
+
+      <div class="stepbar">
+        <button class="sbtn" id="back">◀ back</button>
+        <button class="sbtn" id="fwd">step ▶</button>
+        <button class="sbtn play" id="play">▶ run</button>
+        <div class="progress"><div class="pf" id="pf"></div></div>
+      </div>
+      <div class="stepdesc">
+        <div class="sl" id="stepLabel"></div>
+        <div class="sd" id="stepDesc"></div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="panel">
+        <div class="sec">Did it arrive?</div>
+        <div class="fid">
+          <div class="val" id="fidVal">—</div>
+          <div class="vl">fidelity of Bob's qubit vs. Alice's original</div>
+          <div class="fbar"><div class="ff" id="fidFill"></div></div>
+        </div>
+        <div class="precorr" id="precorr"></div>
+      </div>
+
+      <div class="panel">
+        <div class="sec">What just happened — and what didn't</div>
+        <ul class="lessons">
+          <li><span class="t">No cloning</span>Alice's qubit is <b>consumed</b>: measuring it collapses it to a random bit. The state was <b>moved, not copied</b> — it only ever exists in one place.</li>
+          <li><span class="t">No faster-than-light</span>Until Alice's 2 classical bits reach Bob, his qubit is <b>maximally mixed — pure noise</b>. The bits travel no faster than light, so neither does the information.</li>
+          <li><span class="t">Entanglement is fuel</span>The shared pair is <b>used up</b>: one entangled pair + two classical bits buys one teleported qubit. Teleport again, share a fresh pair.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="seq">
+      <span>01 · informative</span>
+      <span>02 · interactive — Bloch lab</span>
+      <span>03 · complex — circuit simulator</span>
+      <span>04 · algorithms — algorithm theater</span>
+      <span>05 · error correction</span>
+      <span class="here">06 · teleportation — you are here</span>
+    </div>
+    TELEPORTATION · a real 3-qubit statevector simulation · verified that every one of the four Bell-measurement outcomes (each 25%) recovers Alice's exact state at fidelity 1.000; the Bloch vectors are the true reduced states of Alice's and Bob's qubits.
+  </footer>
+</div>
+
+<script>
+/* ===================== verified complex engine (qubit 0 = MSB) ===================== */
+const SQ=Math.SQRT1_2, C=(re,im=0)=>({re,im});
+function fresh(n){const d=1<<n;const re=new Float64Array(d),im=new Float64Array(d);re[0]=1;return{n,d,re,im};}
+function apply1(st,q,m){const{n,d,re,im}=st,mask=1<<(n-1-q);
+  for(let i=0;i<d;i++){if(i&mask)continue;const j=i|mask;
+    const ar=re[i],ai=im[i],br=re[j],bi=im[j];
+    re[i]=m[0].re*ar-m[0].im*ai+m[1].re*br-m[1].im*bi;
+    im[i]=m[0].re*ai+m[0].im*ar+m[1].re*bi+m[1].im*br;
+    re[j]=m[2].re*ar-m[2].im*ai+m[3].re*br-m[3].im*bi;
+    im[j]=m[2].re*ai+m[2].im*ar+m[3].re*bi+m[3].im*br;}}
+function cnot(st,c,t){const{n,d,re,im}=st,cm=1<<(n-1-c),tm=1<<(n-1-t);
+  for(let i=0;i<d;i++){if((i&cm)&&!(i&tm)){const j=i|tm;
+    let r=re[i];re[i]=re[j];re[j]=r;let m=im[i];im[i]=im[j];im[j]=m;}}}
+const GX=[C(0),C(1),C(1),C(0)],GZ=[C(1),C(0),C(0),C(-1)],GH=[C(SQ),C(SQ),C(SQ),C(-SQ)];
+const NQ=3;  // q0 Alice message, q1 Alice Bell half, q2 Bob
+function setQ0(st,a,b){st.re.fill(0);st.im.fill(0);st.re[0]=a.re;st.im[0]=a.im;const i=1<<(NQ-1);st.re[i]=b.re;st.im[i]=b.im;}
+function projectMeasure(st,m0,m1){let prob=0;const{re,im}=st;
+  for(let i=0;i<st.d;i++){const b0=(i>>(NQ-1-0))&1,b1=(i>>(NQ-1-1))&1;
+    if(b0!==m0||b1!==m1){re[i]=0;im[i]=0;}else prob+=re[i]*re[i]+im[i]*im[i];}
+  const s=Math.sqrt(prob)||1;for(let i=0;i<st.d;i++){re[i]/=s;im[i]/=s;}return prob;}
+/* reduced Bloch vector of qubit q (works for mixed states; length<1 = mixed) */
+function reducedBloch(st,q){
+  const bit=1<<(NQ-1-q); let r00=0,r11=0,Mre=0,Mim=0;
+  for(let i=0;i<st.d;i++){ if(i&bit)continue; const j=i|bit;
+    const a0r=st.re[i],a0i=st.im[i],a1r=st.re[j],a1i=st.im[j];
+    r00+=a0r*a0r+a0i*a0i; r11+=a1r*a1r+a1i*a1i;
+    Mre+=a0r*a1r+a0i*a1i;   // Re(a0 * conj(a1))
+    Mim+=a0i*a1r-a0r*a1i;   // Im(a0 * conj(a1))
+  }
+  return [2*Mre, -2*Mim, r00-r11];
+}
+function fidQ2(st,a,b){ // fidelity of Bob (q2) reduced state vs pure (a,b)
+  const bit=1; let r00=0,r11=0,Mre=0,Mim=0;
+  for(let i=0;i<st.d;i++){ if(i&bit)continue; const j=i|bit;
+    const a0r=st.re[i],a0i=st.im[i],a1r=st.re[j],a1i=st.im[j];
+    r00+=a0r*a0r+a0i*a0i; r11+=a1r*a1r+a1i*a1i;
+    Mre+=a0r*a1r+a0i*a1i; Mim+=a0i*a1r-a0r*a1i; }
+  // rho01 = M ; <psi|rho|psi>
+  const r01={re:Mre,im:Mim};
+  const cA={re:a.re,im:-a.im}, cB={re:b.re,im:-b.im};
+  const cAr={re:cA.re*r01.re-cA.im*r01.im,im:cA.re*r01.im+cA.im*r01.re};
+  const cArB={re:cAr.re*b.re-cAr.im*b.im,im:cAr.re*b.im+cAr.im*b.re};
+  const r10={re:Mre,im:-Mim};
+  const cBr={re:cB.re*r10.re-cB.im*r10.im,im:cB.re*r10.im+cB.im*r10.re};
+  const cBrA={re:cBr.re*a.re-cBr.im*a.im,im:cBr.re*a.im+cBr.im*a.re};
+  const e=r00*(a.re*a.re+a.im*a.im)+cArB.re+cBrA.re+r11*(b.re*b.re+b.im*b.im);
+  return Math.sqrt(Math.max(0,e));
+}
+
+/* ===================== app state ===================== */
+let psi={a:C(SQ),b:C(SQ)}, psiName='|+⟩';
+let m0=0,m1=0;            // sampled Bell-measurement outcome (fixed per run)
+let cur=0;
+let playTimer=null;
+const $=id=>document.getElementById(id);
+
+const STAGES=['Prepare','Share Bell pair','Alice rotates','Alice measures','Send 2 bits','Bob corrects'];
+
+/* build state through stage k using the fixed (m0,m1) */
+function build(k){
+  const st=fresh(NQ); setQ0(st,psi.a,psi.b);
+  if(k>=1){ apply1(st,1,GH); cnot(st,1,2); }       // Bell pair q1,q2
+  if(k>=2){ cnot(st,0,1); apply1(st,0,GH); }       // Alice into Bell basis
+  if(k>=3){ projectMeasure(st,m0,m1); }            // Alice measures -> bits
+  if(k>=5){ if(m1)apply1(st,2,GX); if(m0)apply1(st,2,GZ); } // Bob corrects (stage 5; stage 4 = bits in transit)
+  return st;
+}
+function sampleOutcome(){
+  const st=fresh(NQ); setQ0(st,psi.a,psi.b);
+  apply1(st,1,GH); cnot(st,1,2); cnot(st,0,1); apply1(st,0,GH);
+  const probs=[]; const keys=[[0,0],[0,1],[1,0],[1,1]];
+  for(const [a,b] of keys){let p=0;for(let i=0;i<st.d;i++){if(((i>>(NQ-1))&1)===a && ((i>>(NQ-2))&1)===b)p+=st.re[i]*st.re[i]+st.im[i]*st.im[i];}probs.push(p);}
+  let r=Math.random(),acc=0,pick=0;for(let i=0;i<4;i++){acc+=probs[i];if(r<=acc){pick=i;break;}}
+  m0=keys[pick][0]; m1=keys[pick][1];
+}
+
+/* ===================== Bloch rendering ===================== */
+function drawBloch(cv, vec, color){
+  const ctx=cv.getContext('2d'); const DPR=Math.min(window.devicePixelRatio||1,2);
+  const wc=cv.clientWidth||300; cv.width=wc*DPR; cv.height=wc*DPR;
+  const W=cv.width, cx=W/2, cy=W/2, R=W*0.34, az=-0.5, el=0.42;
+  ctx.clearRect(0,0,W,W);
+  const proj=p=>{const ca=Math.cos(az),sa=Math.sin(az);let X=p[0]*ca-p[1]*sa,Y=p[0]*sa+p[1]*ca,Z=p[2];
+    const ce=Math.cos(el),se=Math.sin(el);return{x:X,y:Y*se+Z*ce,depth:Y*ce-Z*se};};
+  const toS=p=>{const q=proj(p);return{sx:cx+R*q.x,sy:cy-R*q.y,d:q.depth};};
+  // disk
+  ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.strokeStyle='rgba(42,42,69,0.9)';ctx.lineWidth=DPR;ctx.stroke();
+  // wireframe
+  const ring=pts=>{for(let i=0;i<pts.length-1;i++){const A=toS(pts[i]),B=toS(pts[i+1]);const f=(A.d+B.d)/2>0;
+    ctx.beginPath();ctx.moveTo(A.sx,A.sy);ctx.lineTo(B.sx,B.sy);
+    ctx.strokeStyle=f?'rgba(45,212,191,0.30)':'rgba(45,212,191,0.09)';ctx.lineWidth=(f?1.0:0.8)*DPR;ctx.stroke();}};
+  const Nn=64,lat=h=>{const r=Math.sqrt(Math.max(0,1-h*h)),a=[];for(let i=0;i<=Nn;i++){const t=i/Nn*2*Math.PI;a.push([r*Math.cos(t),r*Math.sin(t),h]);}return a;};
+  ring(lat(0));ring(lat(0.5));ring(lat(-0.5));
+  for(let mm=0;mm<4;mm++){const lng=mm*Math.PI/4,a=[];for(let i=0;i<=Nn;i++){const v=i/Nn*2*Math.PI;a.push([Math.sin(v)*Math.cos(lng),Math.sin(v)*Math.sin(lng),Math.cos(v)]);}ring(a);}
+  // z axis + poles
+  const ax=(p1,p2,c)=>{const A=toS(p1),B=toS(p2);ctx.beginPath();ctx.moveTo(A.sx,A.sy);ctx.lineTo(B.sx,B.sy);ctx.strokeStyle=c;ctx.lineWidth=DPR;ctx.setLineDash([3*DPR,4*DPR]);ctx.stroke();ctx.setLineDash([]);};
+  ax([0,0,-1.15],[0,0,1.15],'rgba(120,120,150,0.45)');
+  const lbl=(p,t,c,dy)=>{const s=toS(p);ctx.fillStyle=c;ctx.font=(12*DPR)+"px 'IBM Plex Mono', monospace";ctx.textAlign='center';ctx.fillText(t,s.sx,s.sy+(dy||0));};
+  lbl([0,0,1.28],'|0⟩','#5eead4',0); lbl([0,0,-1.28],'|1⟩','#fbbf24',4*DPR);
+  // vector
+  const len=Math.hypot(vec[0],vec[1],vec[2]);
+  const O=toS([0,0,0]);
+  if(len<0.04){
+    ctx.beginPath();ctx.arc(O.sx,O.sy,5*DPR,0,7);ctx.fillStyle='rgba(154,154,181,0.7)';ctx.fill();
+    ctx.fillStyle='rgba(154,154,181,0.7)';ctx.font=(10.5*DPR)+"px 'IBM Plex Mono', monospace";ctx.textAlign='center';ctx.fillText('mixed',O.sx,O.sy+18*DPR);
+  } else {
+    const Tp=toS(vec); const front=Tp.d>=-0.02;
+    ctx.beginPath();ctx.moveTo(O.sx,O.sy);ctx.lineTo(Tp.sx,Tp.sy);
+    ctx.strokeStyle=front?color:hexA(color,0.4);ctx.lineWidth=2.6*DPR;ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.arc(Tp.sx,Tp.sy,5*DPR,0,7);ctx.fillStyle=front?color:hexA(color,0.45);ctx.fill();
+    ctx.beginPath();ctx.arc(Tp.sx,Tp.sy,5*DPR,0,7);ctx.strokeStyle='rgba(255,255,255,0.6)';ctx.lineWidth=DPR;ctx.stroke();
+  }
+  ctx.beginPath();ctx.arc(O.sx,O.sy,2.2*DPR,0,7);ctx.fillStyle='rgba(200,200,220,0.6)';ctx.fill();
+}
+function hexA(hex,a){const h=hex.replace('#','');const r=parseInt(h.substr(0,2),16),g=parseInt(h.substr(2,2),16),b=parseInt(h.substr(4,2),16);return`rgba(${r},${g},${b},${a})`;}
+
+/* ===================== render ===================== */
+const descs=[
+  'Alice holds an unknown qubit |ψ⟩ she wants to send. She can\u2019t look at it (that would collapse it) and can\u2019t copy it. Bob\u2019s qubit starts blank at |0⟩.',
+  'Earlier, Alice and Bob shared an entangled Bell pair — one qubit each. On its own, Bob\u2019s half is now maximally mixed: a measurement would give a coin-flip, carrying nothing about |ψ⟩ yet.',
+  'Alice interferes her message qubit with her half of the pair (a CNOT then a Hadamard). This braids |ψ⟩ into the shared entanglement — but the information is now spread across all three qubits, readable by no single measurement.',
+  'Alice measures her two qubits, getting two random classical bits: '+'m₀,m₁. This collapses her qubits and instantly leaves Bob\u2019s qubit as |ψ⟩ — but scrambled by an operation only these two bits identify. Her original is now destroyed.',
+  'Alice sends the two bits to Bob over an ordinary classical channel — phone, fibre, anything. This step is why teleportation obeys relativity: the bits travel no faster than light.',
+  'Reading the bits, Bob applies the matching fix — X if m₁=1, then Z if m₀=1 — un-scrambling his qubit. It is now exactly |ψ⟩. The state has crossed the gap with perfect fidelity.'
+];
+
+function render(){
+  const st=build(cur);
+  const va=reducedBloch(st,0);   // Alice's message qubit
+  const vb=reducedBloch(st,2);   // Bob's qubit
+  drawBloch($('sphA'), va, '#5eead4');
+  drawBloch($('sphB'), vb, '#86efac');
+
+  // sphere holders styling
+  $('holderA').className='sphereholder'+(cur>=3?' dead':'');
+  $('holderB').className='sphereholder'+(cur>=5?' win':'');
+
+  // state labels
+  if(cur<3) $('lblA').innerHTML='<span class="c">|ψ⟩</span> — the message';
+  else $('lblA').innerHTML='<span class="f">collapsed to |'+m0+'⟩ — destroyed</span>';
+  if(cur<1) $('lblB').innerHTML='<span class="f">|0⟩ — blank</span>';
+  else if(cur<3) $('lblB').innerHTML='<span class="f">mixed — looks like noise</span>';
+  else if(cur<5) $('lblB').innerHTML='<span class="f">scrambled |ψ⟩ — needs the bits</span>';
+  else $('lblB').innerHTML='<span class="g">|ψ⟩ — arrived ✓</span>';
+
+  // classical bits
+  const shown = cur>=3;
+  $('cb0').textContent = shown? m0 : '·'; $('cb1').textContent = shown? m1 : '·';
+  $('cb0').className='cb'+(shown?' set':''); $('cb1').className='cb'+(shown?' set':'');
+  if(cur===4){$('cb0').classList.add('transit');$('cb1').classList.add('transit');}
+  $('clabel').innerHTML = cur<3 ? '2 classical bits<br>(not yet sent)' : (cur===3?'2 bits measured<br>(m₀, m₁)':(cur===4?'sent to Bob →':'received by Bob'));
+
+  // step text
+  $('stepLabel').textContent='Stage '+(cur+1)+'/6 · '+STAGES[cur];
+  $('stepDesc').textContent=descs[cur];
+  $('back').disabled=(cur===0);$('fwd').disabled=(cur===5);
+  $('pf').style.width=(cur/5*100)+'%';
+
+  // fidelity
+  if(cur>=3){
+    const F=fidQ2(st,psi.a,psi.b);
+    const good=F>0.999;
+    $('fidVal').textContent=F.toFixed(3); $('fidVal').style.color=good?'var(--green)':'var(--amber)';
+    $('fidFill').style.width=(F*100)+'%';
+    if(cur<5){
+      const corr=(m1?'X':'')+(m0?(m1?'+Z':'Z'):'')||'I';
+      $('precorr').innerHTML = good
+        ? `Bob got lucky: outcome <b>${m0}${m1}</b> needs no fix. Usually it doesn\u2019t — the other 3 outcomes leave his qubit rotated until he applies the correction.`
+        : `Bob\u2019s qubit is the right state <b>scrambled</b> by <b>${corr}</b>. Without the 2 bits he can\u2019t know which of 4 scramblings happened — so it\u2019s useless to him. That\u2019s the no-FTL guarantee.`;
+    } else {
+      const corr=(m1?'X':'')+(m0?(m1?', then Z':'Z'):'');
+      $('precorr').innerHTML = corr
+        ? `Correction applied: <b>${corr}</b> (from bits ${m0}${m1}). Fidelity is exactly 1.000 — perfect transfer.`
+        : `Outcome <b>00</b> needed no correction this run. Fidelity 1.000 — perfect transfer.`;
+    }
+  } else {
+    $('fidVal').textContent='—'; $('fidVal').style.color='var(--green)';
+    $('fidFill').style.width='0%';
+    $('precorr').innerHTML='Bob\u2019s qubit can\u2019t match |ψ⟩ until Alice measures and sends her bits.';
+  }
+}
+
+/* ===================== config + controls ===================== */
+const states=[['|+⟩',C(SQ),C(SQ)],['|i⟩',C(SQ),C(0,SQ)],['|0⟩',C(1),C(0)],['|1⟩',C(0),C(1)]];
+function renderConfig(){
+  $('config').innerHTML=`
+    <div class="grp"><span class="gl">Teleport</span>
+      ${states.map(s=>`<button class="opt ${psiName===s[0]?'on':''}" data-st="${s[0]}">${s[0]}</button>`).join('')}
+      <button class="opt ${psiName==='rand'?'on':''}" data-st="rand">random</button></div>
+    <button class="opt rerun" id="rerun">↻ re-run (new measurement)</button>`;
+  document.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{
+    const v=b.dataset.st;
+    if(v==='rand'){const t=Math.acos(2*Math.random()-1),ph=Math.random()*2*Math.PI;
+      psi={a:C(Math.cos(t/2)),b:C(Math.sin(t/2)*Math.cos(ph),Math.sin(t/2)*Math.sin(ph))};psiName='rand';}
+    else{const s=states.find(x=>x[0]===v);psi={a:s[1],b:s[2]};psiName=v;}
+    cur=0; reset();
+  });
+  $('rerun').onclick=()=>{cur=0; reset();};
+}
+function reset(){stop();sampleOutcome();renderConfig();render();}
+function step(d){stop();cur=Math.max(0,Math.min(5,cur+d));render();}
+function stop(){if(playTimer){clearInterval(playTimer);playTimer=null;$('play').innerHTML='▶ run';}}
+function play(){if(playTimer){stop();return;}if(cur>=5){cur=0;sampleOutcome();}render();$('play').innerHTML='❚❚ pause';
+  playTimer=setInterval(()=>{if(cur>=5){stop();return;}cur++;render();},1050);}
+$('back').onclick=()=>step(-1);$('fwd').onclick=()=>step(1);$('play').onclick=play;
+window.addEventListener('resize',render);
+reset();
+</script>
+<footer style="max-width:1180px;margin:36px auto 0;padding:16px 2px;border-top:1px solid #1f1f33;font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.04em;color:#5e5e7a">QUANTUM TELEPORTATION &middot; a FRONTIER sphere of UD0 &middot; David Lee Wise (ROOT0) &middot; CC-BY-ND-4.0 &middot; <a style="color:#8f8ac0" href="https://davidwise01.github.io/ud0/">the domains</a></footer>
+</body>
+</html>
